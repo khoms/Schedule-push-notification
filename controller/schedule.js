@@ -1,103 +1,20 @@
-const _ = require("lodash");
-
-const scheduleLib = require("node-schedule");
-const firebaseAdmin = require("../firebaseAdmin");
-const User = require("../models/user");
 const ScheduledNotification = require("../models/scheduleNotification");
-const schedule = {};
 
-schedule.createSchedule = async function (data) {
+exports.getNotification = async (req, res) => {
   try {
-    const scheduledNotification = new ScheduledNotification({
-      time: data.time,
-      days: data.days,
-      notification: {
-        title: data.title,
-        body: data.body,
-      },
-    });
+    const list = schedule.getJobs();
+    const keys = Object.keys(list);
 
-    await scheduledNotification.save();
+    let schedules = await ScheduledNotification.find({});
 
-    const dayOfWeek = data.days.join(",");
-    const timeToSent = data.time.split(":");
-    const hours = timeToSent[0];
-    const minutes = timeToSent[1];
+    schedules = schedules.filter((item) => keys.includes(item._id.toString()));
 
-    const scheduleId = scheduledNotification._id.toString();
-    const scheduleTimeout = `${minutes} ${hours} * * ${dayOfWeek}`;
-
-    scheduleLib.scheduleJob(scheduleId, scheduleTimeout, async () => {
-      const users = await User.find({});
-
-      const chunks = _.chunk(users, 500);
-
-      const promises = chunks.map((u) => {
-        const tokens = [];
-
-        u.forEach((item) => {
-          if (item.token) {
-            tokens.push(item.token);
-          }
-        });
-
-        const payload = {
-          tokens,
-          title: data.title,
-          body: data.body,
-        };
-
-        return firebaseAdmin.sendMulticastNotification(payload);
-      });
-
-      await Promise.all(promises);
+    res.json({
+      data: { schedules },
+      status: "success",
+      message: "successfully",
     });
   } catch (e) {
-    throw e;
+    res.status(400).json({ message: e.message, success: false });
   }
 };
-
-schedule.reSchedule = async function () {
-  try {
-    const scheduledNotifications = await ScheduledNotification.find({});
-
-    scheduledNotifications.forEach((scheduledNotification) => {
-      const dayOfWeek = scheduledNotification.days.join(",");
-      const timeToSent = scheduledNotification.time.split(":");
-      const hours = timeToSent[0];
-      const minutes = timeToSent[1];
-
-      const scheduleId = scheduledNotification._id.toString();
-      const scheduleTimeout = `${minutes} ${hours} * * ${dayOfWeek}`;
-
-      scheduleLib.scheduleJob(scheduleId, scheduleTimeout, async () => {
-        const users = await User.find({});
-
-        const chunks = _.chunk(users, 500);
-
-        const promises = chunks.map((u) => {
-          const tokens = [];
-
-          u.forEach((item) => {
-            if (item.token) {
-              tokens.push(item.token);
-            }
-          });
-
-          const payload = {
-            tokens,
-            title: scheduledNotification.notification.title,
-            body: scheduledNotification.notification.body,
-          };
-
-          return firebaseAdmin.sendMulticastNotification(payload);
-        });
-
-        await Promise.all(promises);
-      });
-    });
-  } catch (e) {
-    throw e;
-  }
-};
-module.exports = schedule;
